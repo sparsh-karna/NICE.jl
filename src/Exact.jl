@@ -1,5 +1,4 @@
 using LinearAlgebra
-
 using SciMLBase
 using ForwardDiff
 using NonlinearSolve
@@ -21,8 +20,10 @@ K_\\text{eq}^{\\left(m\\right)} =
     \\prod_{n=1}^N {\\left( a_n^{\\left(0\\right)} +
     \\sum_{m=1}^M c_{mn} \\xi_m \\right)}^{c_{mn}}
 ```
-using user-provided ``K_\text{eq}`` values and the Newton's method + Trust
-Region method.
+using user-provided ``K_\\text{eq}`` values and the Newton's method + Trust
+Region method. The function updates `rxn_system.concs` with the equilibrium
+concentrations if the optimization succeeds, and returns a solution object
+containing the optimized reaction extents and convergence details.
 """
 function solve(
     rxn_system::ReactionSystem,
@@ -33,20 +34,20 @@ function solve(
 )
     # Define the objective function
     function f_K_eqs(f, ξ, _)
-        for i in 1 : rxn_system.n_reaction
+        for i in 1:rxn_system.n_reaction
             f_i1 = K_eqs[i]
             f_i2 = 1.0
-            for j in 1 : rxn_system.n_species
+            for j in 1:rxn_system.n_species
                 # Reactants
                 if rxn_system.stoich[j, i] < 0
                     f_i1 *= (
                         rxn_system.concs_init[j] + rxn_system.stoich[j, :] · ξ
-                    ) ^ -rxn_system.stoich[j, i]
-                # Products
+                    )^-rxn_system.stoich[j, i]
+                    # Products
                 elseif rxn_system.stoich[j, i] > 0
                     f_i2 *= (
                         rxn_system.concs_init[j] + rxn_system.stoich[j, :] · ξ
-                    ) ^ rxn_system.stoich[j, i]
+                    )^rxn_system.stoich[j, i]
                 end
             end
             f[i] = f_i1 - f_i2
@@ -72,7 +73,7 @@ function solve(
 end
 
 """
-    solve(rxn_system, K_eqs; maxiters=1000, abstol=1.0e-9, reltol=0.0)
+    solve(rxn_system, K_eqs; max, φ=1.0, rate_consts=:forward, maxiters=1000, abstol=1.0e-9, reltol=0.0)
 
 Solve the system deterministically.
 
@@ -88,11 +89,12 @@ K_\\text{eq}^{\\left(m\\right)} =
     \\prod_{n=1}^N {\\left( a_n^{\\left(0\\right)} +
     \\sum_{m=1}^M c_{mn} \\xi_m \\right)}^{c_{mn}}
 ```
-using Newton's method + Trust Region.
-
-Instead of specifying the ``K_\\text{eq}`` values directly, they are
-approximated here using the forward or reverse rate constants and a parameter
-``\\phi``.
+using Newton's method + Trust Region. Instead of specifying the ``K_\\text{eq}``
+values directly, they are approximated here using the forward or reverse rate
+constants and a parameter ``\\phi``. If `:forward` is chosen, equilibrium constants
+are derived as ``K_\\text{eq} = (k_f - 2\\phi)/(k_f - \\phi)``; if `:reverse`, as
+``K_\\text{eq} = (k_r + \\phi)/k_r``. The function updates `rxn_system.concs`
+upon successful convergence and returns a solution object.
 """
 function solve(
     rxn_system::ReactionSystem;
@@ -118,6 +120,15 @@ function solve(
     solve(rxn_system, K_eqs; maxiters=maxiters, abstol=abstol, reltol=reltol)
 end
 
+"""
+    hybrid_solve(rxn_system, K_eqs; n_iter=Int(1e+8), chunk_iter=Int(1e+4), ε=1.0e-4, ε_scale=1.0, ε_concs=0.0, tol_ε=0.0, maxiters=1000, abstol=1.0e-9, reltol=0.0)
+
+Combines stochastic simulation and deterministic solving to find equilibrium
+concentrations. First, it runs a Net-Event Kinetic Monte Carlo simulation via
+`simulate` to approach equilibrium, then refines the result using the
+deterministic `solve` method with provided ``K_\\text{eq}`` values. The function
+updates `rxn_system.concs` and returns the final nonlinear solution object.
+"""
 function hybrid_solve(
     rxn_system::ReactionSystem,
     K_eqs::AbstractVector{Float64};
