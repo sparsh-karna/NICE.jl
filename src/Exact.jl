@@ -117,3 +117,20 @@ function solve(
     end
     solve(rxn_system, K_eqs; maxiters=maxiters, abstol=abstol, reltol=reltol)
 end
+
+function hybrid_solve(
+    rxn_system::ReactionSystem,
+    K_eqs::AbstractVector{Float64};
+    n_iter::Integer=Int(1e+8),
+    chunk_iter::Integer=Int(1e+4),
+    ε::Real=1.0e-4,
+    ε_scale::Real=1.0,
+    ε_concs::Real=0.0,
+    tol_ε::Real=0.0,
+    maxiters::Integer=1000,
+    abstol::Real=1.0e-9,
+    reltol::Real=0.0,
+)
+    simulate(rxn_system; n_iter=n_iter, chunk_iter=chunk_iter, ε=ε, ε_scale=ε_scale, ε_concs=ε_concs, tol_ε=tol_ε)
+    solve(rxn_system, K_eqs; maxiters=maxiters, abstol=abstol, reltol=reltol)
+end
