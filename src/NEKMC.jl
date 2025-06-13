@@ -123,56 +123,45 @@ end
 """
     objective_function(rxn_system, xi)
 
-Computes the objective function f_r(ξ) for each reaction r in the system.
-Returns a vector of length R, where each element f_r represents the residual
-of the equilibrium equation for reaction r.
+Computes the objective function f_r(ξ) for each reaction r using whole-array operations.
+Returns a vector of length R, where f_r = 0 at equilibrium.
 
 Arguments:
 - rxn_system::ReactionSystem: The reaction system with stoichiometry, initial concentrations, and equilibrium constants.
 - xi::Vector{Float64}: The reaction progress vector ξ, length R.
 """
 function objective_function(rxn_system::ReactionSystem, xi::Vector{Float64})
-    R = rxn_system.n_reaction  # Number of reactions
-    N = rxn_system.n_species   # Number of species
-    f = zeros(Float64, R)      # Objective function values f_r
-
     # Compute updated activities: a_i = a_i^(0) + sum(ν_i^(s) * ξ^(s))
-    activities = copy(rxn_system.concs)  # Initial activities (a_i^(0))
-    for i in 1:N
-        for s in 1:R
-            activities[i] += rxn_system.stoich[i, s] * xi[s]
+    activities = rxn_system.concs .+ rxn_system.stoich * xi
+
+    # Initialize terms
+    term1 = copy(rxn_system.keq_vals)  # K^(r)
+    term2 = ones(Float64, rxn_system.n_reaction)
+
+    # Term 1: K^(r) * product over species where ν_i^(r) < 0
+    for r in 1:rxn_system.n_reaction
+        mask = rxn_system.stoich[:, r] .< 0
+        if any(mask)
+            term1[r] *= prod(activities[mask] .^ (-rxn_system.stoich[mask, r]))
         end
     end
 
-    # Compute f_r for each reaction
-    for r in 1:R
-        # First term: K^(r) * product over species where ν_i^(r) < 0
-        term1 = rxn_system.keq_vals[r]
-        for i in 1:N
-            if rxn_system.stoich[i, r] < 0
-                term1 *= activities[i]^(-rxn_system.stoich[i, r])
-            end
+    # Term 2: product over species where ν_i^(r) > 0
+    for r in 1:rxn_system.n_reaction
+        mask = rxn_system.stoich[:, r] .> 0
+        if any(mask)
+            term2[r] = prod(activities[mask] .^ rxn_system.stoich[mask, r])
         end
-
-        # Second term: product over species where ν_i^(r) > 0
-        term2 = 1.0
-        for i in 1:N
-            if rxn_system.stoich[i, r] > 0
-                term2 *= activities[i]^rxn_system.stoich[i, r]
-            end
-        end
-
-        f[r] = term1 - term2
     end
 
-    return f
+    return term1 .- term2
 end
 
 """
     jacobian_function(rxn_system, xi)
 
-Computes the Jacobian matrix J_rs = ∂f_r/∂ξ^(s) for the system of equations.
-Returns an R×R matrix, where R is the number of reactions.
+Computes the Jacobian matrix J_rs = ∂f_r/∂ξ^(s) using whole-array operations.
+Returns an R×R matrix.
 
 Arguments:
 - rxn_system::ReactionSystem: The reaction system with stoichiometry, initial concentrations, and equilibrium constants.
@@ -183,51 +172,49 @@ function jacobian_function(rxn_system::ReactionSystem, xi::Vector{Float64})
     N = rxn_system.n_species
     J = zeros(Float64, R, R)
 
-    # Compute updated activities: a_i = a_i^(0) + sum(ν_i^(s) * ξ^(s))
-    activities = copy(rxn_system.concs)
-    for i in 1:N
-        for s in 1:R
-            activities[i] += rxn_system.stoich[i, s] * xi[s]
-        end
-    end
+    # Compute updated activities
+    activities = rxn_system.concs .+ rxn_system.stoich * xi
 
-    # Compute Jacobian J_rs
     for r in 1:R
+        # Precompute masks for species
+        neg_mask = rxn_system.stoich[:, r] .< 0
+        pos_mask = rxn_system.stoich[:, r] .> 0
+
         for s in 1:R
-            # First term: K^(r) * sum over species where ν_i^(r) < 0
+            # Term 1: K^(r) * sum over species where ν_i^(r) < 0
             term1 = 0.0
-            for i in 1:N
-                if rxn_system.stoich[i, r] < 0
-                    # Product over all j ≠ i
-                    prod = 1.0
-                    for j in 1:N
-                        if j != i
-                            if rxn_system.stoich[j, r] < 0
-                                prod *= activities[j]^(-rxn_system.stoich[j, r])
-                            end
+            if any(neg_mask)
+                for i in 1:N
+                    if neg_mask[i]
+                        # Product excluding species i
+                        other_mask = neg_mask .& (1:N .!= i)
+                        prod = 1.0
+                        if any(other_mask)
+                            prod = prod(activities[other_mask] .^ (-rxn_system.stoich[other_mask, r]))
                         end
+                        # Derivative term
+                        deriv = (-rxn_system.stoich[i, r]) * activities[i]^(-rxn_system.stoich[i, r] - 1) * rxn_system.stoich[i, s]
+                        term1 += prod * deriv
                     end
-                    # Compute the derivative term
-                    term1 += prod * (-rxn_system.stoich[i, r]) * activities[i]^(-rxn_system.stoich[i, r] - 1) * rxn_system.stoich[i, s]
                 end
             end
             term1 *= rxn_system.keq_vals[r]
 
-            # Second term: sum over species where ν_i^(r) > 0
+            # Term 2: sum over species where ν_i^(r) > 0
             term2 = 0.0
-            for i in 1:N
-                if rxn_system.stoich[i, r] > 0
-                    # Product over all j ≠ i
-                    prod = 1.0
-                    for j in 1:N
-                        if j != i
-                            if rxn_system.stoich[j, r] > 0
-                                prod *= activities[j]^rxn_system.stoich[j, r]
-                            end
+            if any(pos_mask)
+                for i in 1:N
+                    if pos_mask[i]
+                        # Product excluding species i
+                        other_mask = pos_mask .& (1:N .!= i)
+                        prod = 1.0
+                        if any(other_mask)
+                            prod = prod(activities[other_mask] .^ rxn_system.stoich[other_mask, r])
                         end
+                        # Derivative term
+                        deriv = rxn_system.stoich[i, r] * activities[i]^(rxn_system.stoich[i, r] - 1) * rxn_system.stoich[i, s]
+                        term2 += prod * deriv
                     end
-                    # Compute the derivative term
-                    term2 += prod * rxn_system.stoich[i, r] * activities[i]^(rxn_system.stoich[i, r] - 1) * rxn_system.stoich[i, s]
                 end
             end
 
