@@ -15,19 +15,18 @@ Arguments:
 - f::Vector{Float64}: The output vector to store the computed objective function values.
 - rxn_system::ReactionSystem: The reaction system with stoichiometry, initial concentrations, and equilibrium constants.
 - K_eqs::AbstractVector{Float64}: The equilibrium constants for each reaction, length R.
-- xi::Vector{Float64}: The reaction progress vector ξ, length R.
+- xi::AbstractVector{T}: The reaction progress vector ξ, length R, where T is a subtype of Real (e.g., Float64 or Dual).
 """
-function objective_function!(f::Vector{Float64}, rxn_system::ReactionSystem, K_eqs::AbstractVector{Float64}, xi::Vector{Float64})
+function objective_function!(f::AbstractVector, rxn_system::ReactionSystem, K_eqs::AbstractVector{Float64}, xi::AbstractVector{T}) where {T<:Real}
     activities = rxn_system.concs_init .+ rxn_system.stoich * xi
-
-    if any(x -> x <= 0, activities)
-        f .= Inf
+    if any(x -> ForwardDiff.value(x) <= 0, activities)
+        f .= T(Inf)
         return nothing
     end
 
     for r in 1:rxn_system.n_reaction
         term1 = K_eqs[r]
-        term2 = 1.0
+        term2 = one(T)
 
         for i in 1:rxn_system.n_species
             nu_ir = rxn_system.stoich[i, r]
@@ -41,7 +40,6 @@ function objective_function!(f::Vector{Float64}, rxn_system::ReactionSystem, K_e
     end
     return nothing
 end
-
 """
     jacobian_function!(J, rxn_system, K_eqs, xi)
 

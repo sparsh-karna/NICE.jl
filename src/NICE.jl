@@ -16,4 +16,4 @@ include("ReactionSystem.jl")
 include("NEKMC.jl")
 include("Exact.jl")
 
-end # module NICE
+end
