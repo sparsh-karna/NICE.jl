@@ -98,7 +98,6 @@ function jacobian_function!(J::Matrix{Float64}, rxn_system::ReactionSystem, K_eq
 
         J[r, s] = term1_deriv - term2_deriv
     end
-    return nothing
 end
 
 
