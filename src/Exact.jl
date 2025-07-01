@@ -19,10 +19,6 @@ Arguments:
 """
 function objective_function!(f::AbstractVector, rxn_system::ReactionSystem, K_eqs::AbstractVector{Float64}, xi::AbstractVector{T}) where {T<:Real}
     activities = rxn_system.concs_init .+ rxn_system.stoich * xi
-    if any(x -> ForwardDiff.value(x) <= 0, activities)
-        f .= T(Inf)
-        return nothing
-    end
 
     for r in 1:rxn_system.n_reaction
         term1 = K_eqs[r]
@@ -38,7 +34,6 @@ function objective_function!(f::AbstractVector, rxn_system::ReactionSystem, K_eq
         end
         f[r] = term1 - term2
     end
-    return nothing
 end
 """
     jacobian_function!(J, rxn_system, K_eqs, xi)

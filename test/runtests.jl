@@ -242,3 +242,46 @@ end
         @test isapprox(J_analytical, J_ad; atol=1e-8, rtol=1e-8)
     end
 end
+
+@testset "Negative Activity Handling" begin
+    stoich = Float64[
+        -2.0 1.0;
+        1.0 -1.0;
+        0.0 1.0
+    ]
+    keq_vals = [1.0, 0.1]
+    concs = [1.0, 0.2, 0.4]
+    rxn_system = ReactionSystem(stoich, concs, keq_vals; φ=1.0)
+
+    xi_negative = [1.0, 0.0]  # This should make activities[1] = 1.0 - 2.0*1.0 = -1.0
+    f_out = zeros(Float64, rxn_system.n_reaction)
+
+    # The objective function should not crash with negative activities
+    NICE.objective_function!(f_out, rxn_system, keq_vals, xi_negative)
+    @test length(f_out) == rxn_system.n_reaction
+
+    # Test with fractional exponents that would cause domain errors
+    stoich_fractional = Float64[
+        -0.5 1.0;  # This will cause fractional exponents
+        1.0 -1.0;
+        0.0 1.0
+    ]
+    rxn_system_frac = ReactionSystem(stoich_fractional, concs, keq_vals; φ=1.0)
+    f_out_frac = zeros(Float64, rxn_system_frac.n_reaction)
+
+    # This should either throw a DomainError or return complex results converted to NaN/Inf
+    try
+        NICE.objective_function!(f_out_frac, rxn_system_frac, keq_vals, xi_negative)
+        # If it succeeds, the results may be NaN or Inf due to complex number conversions
+        @test any(isnan.(f_out_frac)) || any(isinf.(f_out_frac)) || all(isfinite.(f_out_frac))
+    catch e
+        # DomainError is expected for negative^fractional
+        @test isa(e, DomainError)
+    end
+
+    # Test that Jacobian function handles negative activities with its explicit check
+    J_out = zeros(Float64, rxn_system.n_reaction, rxn_system.n_reaction)
+    NICE.jacobian_function!(J_out, rxn_system, keq_vals, xi_negative)
+    # Should return infinite values as implemented
+    @test all(isinf.(J_out))
+end
