@@ -213,15 +213,13 @@ function hybrid_solve(
     rxn_system::ReactionSystem,
     K_eqs::AbstractVector{Float64};
     maxiters::Integer=1000,
-    n_iter::Integer=Int(1e+8),
-    ε::Real=1.0e-3,
+    n_iter::Integer=Int(1e+8), # Using the new, more reasonable default
     ε_tol::Real=1.0e-12,
-    ε_mult::Real=0.1,
-    n_check=100,
-    n_avg=100,
+    min_concs_factor::Real=0.01, # New parameter with a sensible default
     abstol::Real=1.0e-9,
     reltol::Real=0.0,
 )
-    simulate(rxn_system; n_iter=n_iter, ε=ε, ε_tol=ε_tol, ε_mult=ε_mult, n_check=n_check, n_avg=n_avg)
+    simulate(rxn_system; n_iter=n_iter, ε_tol=ε_tol, min_concs_factor=min_concs_factor)
+    rxn_system.concs_init .= rxn_system.concs
     solve(rxn_system, K_eqs; maxiters=maxiters, abstol=abstol, reltol=reltol)
 end

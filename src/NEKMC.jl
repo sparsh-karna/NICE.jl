@@ -11,7 +11,7 @@ equilibrium concentrations of the reaction system.
 
 function simulate(
     rxn_system::ReactionSystem;
-    n_iter::Integer=Int(5e6), # A more reasonable default for testing
+    n_iter::Integer=Int(1e+10), # A more reasonable default for testing
     ε_tol::Real=1.0e-12,
     min_concs_factor::Real=0.01 # Step size is a fraction of the smallest concentration
 )
